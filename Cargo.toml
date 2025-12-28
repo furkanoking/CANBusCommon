@@ -1,0 +1,21 @@
+[package]
+name = "canbus_common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shared_memory = "0.12"
+
+[lib]
+# the name of the dynamic-library
+name = "canbus_common"
+# C-compatible dynamic library
+crate-type = ["cdylib"]
+
+
+# to compile in linux use:
+# cargo zigbuild --target x86_64-unknown-linux-gnu --release
+
+
+# for generating header file use:
+# cbindgen --crate canbus_common --output lib/CANBusCommon.h
