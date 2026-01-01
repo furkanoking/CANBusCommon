@@ -1,7 +1,7 @@
 use shared_memory:: {Shmem, ShmemConf};
 
-use std::sync::atomic::{AtomicU32, Ordering};
-
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{LazyLock, Mutex, OnceLock};
 use crate::CounterUpdater::{apply_counter_updating, logic_counter_updater};
 
 #[repr(C)] // this is for the shared memory
@@ -14,13 +14,15 @@ pub struct CANBusSharedCounter {
 pub struct SharedCounter {
     shmem: Shmem, // this is for the shared memory
     capacity: usize,
+    is_created: bool, // to be sure it is craeted or not
 }
 
 impl SharedCounter {
    
     pub fn new(capacity: usize) -> Self {
-        let os_name = "CANBusSharedCounter";
 
+        let os_name = "CANBusSharedCounter";
+        let mut is_created_local = false;
         let size = capacity * std::mem::size_of::<CANBusSharedCounter>();
 
         let mut is_creator = false;
@@ -42,7 +44,7 @@ impl SharedCounter {
 
         if(is_creator) {
             println!("Shared memory created.");
-
+            is_created_local= true;
             let ptr = my_shared_memory.as_ptr() as *mut CANBusSharedCounter;
             let slots: &mut [CANBusSharedCounter] = unsafe { std::slice::from_raw_parts_mut(ptr, capacity) };
 
@@ -56,13 +58,11 @@ impl SharedCounter {
             println!("Shared memory opened.");
         }
 
-
-
-
        // This is the return value.
         SharedCounter {
             shmem: my_shared_memory,
             capacity,
+            is_created: is_created_local,
         }
     }
 
@@ -75,6 +75,7 @@ impl SharedCounter {
         for slot in slots {
                 if slot.id.load(Ordering::SeqCst) == target_id { // the reason that we are using load is it is atomic value
                     apply_counter_updating(&slot.counter, logic_counter_updater);
+                    println!("new counter is : {}",slot.counter.load(Ordering::SeqCst));
                     println! ("ID {} bulundu ve güncellendi.", target_id); // TODO it is a random number. We have to generatr eit from another function
                     return; // get out of the function
                 }
@@ -91,6 +92,8 @@ impl SharedCounter {
         
         for slot in slots {
                 if slot.id.load(Ordering::SeqCst) == target_id {
+                    println!(" counter is : {}",slot.counter.load(Ordering::SeqCst));
+
                     return slot.counter.load(Ordering::SeqCst);
                 }
         }
@@ -98,5 +101,17 @@ impl SharedCounter {
             println! ("ID {} bulunamadı.", target_id);
             return 0;
     }
-}   
+}
+
+
+// The reason why we are using unsafe is the global static
+// variable should be protected. We use mutex but because of the
+// shared library, it is unsafe. By writing unsafe we assume it is protected
+unsafe impl Send for SharedCounter {}
+unsafe impl Sync for SharedCounter {}
+
+pub static GLOBAL_COUNTER: LazyLock<Mutex<SharedCounter>> = LazyLock::new(|| {
+   let capacity = 64;
+    Mutex::new(SharedCounter::new(capacity))
+});
 
